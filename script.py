@@ -1,16 +1,18 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import requests
 
+
 # Bot setup
-# Commented out my token for safety
 # TOKEN =
+# token hidden for safety
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # This Dictionary is used to store Penguins Player numbers in a key value pair with their stats.
 penguins_roster = {}
+
 
 # Function to get Penguins roster. This first clears the roster dictionary (K,V pair) then requests the data with an api call
 def get_penguins_roster():
@@ -23,7 +25,7 @@ def get_penguins_roster():
     # Creates 3 lists to organize players by team role.
     players = (
         data.get("forwards", []) +
-        data.get("defensemen", []) +
+        data.get("defense", []) +
         data.get("goalies", [])
     )
 
@@ -42,7 +44,7 @@ def get_penguins_roster():
         }
 
 # Uses the players player id that was retrieved from get_penguins_roster(): to find the searched player if they are
-# forwards or defensemen.
+# forwards or defense.
 def get_skater_stats(player_id):
     url = f"https://api-web.nhle.com/v1/player/{player_id}/landing"
     data = requests.get(url, timeout=10).json()
@@ -87,16 +89,24 @@ def get_goalie_stats(player_id):
         "GAA": stats.get("gaa", 0.0)
     }
 
+# Updates team roster once every hour to limit api calls.
+@tasks.loop(hours=1.0)
+async def update_roster_task():
+    print("Updating roster cache...")
+    try:
+        get_penguins_roster()
+        print("Roster cache updated successfully.")
+    except Exception as e:
+        print(f"Failed to update roster: {e}")
+
+
 # Loads Penguins roster on bot startup
 @bot.event
 async def on_ready():
-    print("Bot connected, loading roster...")
-    try:
-        get_penguins_roster()
-        print(f"Roster loaded. Logged in as {bot.user}")
-    except Exception as e:
-        print("CRASH in on_ready():")
-        print(e)
+    print(f"Logged in as {bot.user}")
+    if not update_roster_task.is_running():
+        update_roster_task.start()
+
 
 # Listens to messages for a player number
 @bot.event
