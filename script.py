@@ -25,7 +25,7 @@ def get_penguins_roster():
     # Creates 3 lists to organize players by team role.
     players = (
         data.get("forwards", []) +
-        data.get("defense", []) +
+        data.get("defensemen", []) +
         data.get("goalies", [])
     )
 
@@ -44,7 +44,7 @@ def get_penguins_roster():
         }
 
 # Uses the players player id that was retrieved from get_penguins_roster(): to find the searched player if they are
-# forwards or defense.
+# forwards or defensemen.
 def get_skater_stats(player_id):
     url = f"https://api-web.nhle.com/v1/player/{player_id}/landing"
     data = requests.get(url, timeout=10).json()
