@@ -1,11 +1,15 @@
 import discord
 from discord.ext import commands, tasks
 import requests
-
+import asyncio
 
 # Bot setup
-# TOKEN =
-# token hidden for safety
+# TOKEN = HIDDEN FOR SAFETY
+
+# int variable to hold the amount of seconds the bot will wait without a message until it clears the chat log.
+INACTIVITY_TIME = 60
+inactivity_tasks = {}  # Stores active timers
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -43,8 +47,8 @@ def get_penguins_roster():
             "position": player["positionCode"]
         }
 
-# Uses the players player id that was retrieved from get_penguins_roster(): to find the searched player if they are
-# forwards or defensemen.
+# Uses the players player id that was retrieved from get_penguins_roster(): to find out if the player is a forward, or
+# defensemen.
 def get_skater_stats(player_id):
     url = f"https://api-web.nhle.com/v1/player/{player_id}/landing"
     data = requests.get(url, timeout=10).json()
@@ -65,7 +69,7 @@ def get_skater_stats(player_id):
         "plusMinus": stats.get("plusMinus", 0)
     }
 
-# Uses the players player id that was retrieved from get_penguins_roster(): to find the searched player if they are
+# Uses the players player id that was retrieved from get_penguins_roster(): to find out if the searched player is
 # a goalie.
 def get_goalie_stats(player_id):
     url = f"https://api-web.nhle.com/v1/player/{player_id}/landing"
@@ -78,7 +82,6 @@ def get_goalie_stats(player_id):
         data.get("featuredStats", {})
         .get("regularSeason", {})
         .get("subSeason", {})
-
     )
 
     # Returns the searched goalies wins, losses, save percentage, and goals against average
@@ -88,6 +91,13 @@ def get_goalie_stats(player_id):
         "savePercentage": stats.get("savePctg", 0.0),
         "GAA": stats.get("gaa", 0.0)
     }
+
+# Loads Penguins roster on bot startup
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+    if not update_roster_task.is_running():
+        update_roster_task.start()
 
 # Updates team roster once every hour to limit api calls.
 @tasks.loop(hours=1.0)
@@ -100,13 +110,14 @@ async def update_roster_task():
         print(f"Failed to update roster: {e}")
 
 
-# Loads Penguins roster on bot startup
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user}")
-    if not update_roster_task.is_running():
-        update_roster_task.start()
+async def start_inactivity_timer(channel):
+    await asyncio.sleep(INACTIVITY_TIME)
 
+    try:
+        await channel.purge(limit=100)
+        await channel.send("Chat cleared due to 1 minute of inactivity.")
+    except Exception as e:
+        print(f"Error clearing chat: {e}")
 
 # Listens to messages for a player number
 @bot.event
@@ -114,6 +125,16 @@ async def on_message(message):
     # Ignore the bot's own messages
     if message.author == bot.user:
         return
+
+        # Reset inactivity timer for this channel
+    channel_id = message.channel.id
+
+    # Cancels existing timer if it exists
+    if channel_id in inactivity_tasks:
+        inactivity_tasks[channel_id].cancel()
+
+    # Start new inactivity timer
+    inactivity_tasks[channel_id] = bot.loop.create_task(start_inactivity_timer(message.channel))
 
     # Checks if the message contains only a number (jersey number)
     if message.content.isdigit():
@@ -143,7 +164,7 @@ async def on_message(message):
                 )
             await message.channel.send(msg)
         else:
-            await message.channel.send("Player not found. Check the jersey number.")
+            await message.channel.send("Player not found. Please enter a valid jersey number.")
 
     # This ensures commands like !help still work
     await bot.process_commands(message)
